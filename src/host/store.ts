@@ -44,6 +44,13 @@ export interface EventFilter {
   todoProgress: boolean
 }
 
+/** Telegram mirror of the one-line native push (restart-proof phone delivery). */
+export interface TelegramChannel {
+  enabled: boolean
+  botToken: string
+  chatId: string
+}
+
 export interface PluginConfig {
   enabled: boolean
   events: EventFilter
@@ -57,6 +64,8 @@ export interface PluginConfig {
    * through a local proxy, direct sends time out.
    */
   proxyUrl: string
+  /** Optional Telegram channel: same one-line payload, delivered via Bot API. */
+  telegram: TelegramChannel
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
@@ -72,6 +81,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   mainAgentOnly: true,
   titlePrefix: '',
   proxyUrl: '',
+  telegram: { enabled: false, botToken: '', chatId: '' },
 }
 
 /** Resolve DSH_HOME, falling back to ~/.dsh (same rule as dsh-notify-plugin). */

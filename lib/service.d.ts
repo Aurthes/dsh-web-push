@@ -53,6 +53,19 @@ export declare class WebPushService extends Service {
         removed: number;
         errors: string[];
     }>;
+    /**
+     * Telegram mirror of the one-line push: the payload title ONLY (e.g.
+     * "✅ 修复 bybit 拒单"). Never any body, never any expansion — the chat is a
+     * status ticker, details live in the GUI. Best-effort: failures are logged
+     * and never affect the native fan-out above.
+     */
+    private sendTelegram;
+    /**
+     * axios ignores ALL_PROXY and reads http_proxy/https_proxy per protocol.
+     * When only the explicit proxyUrl config exists (env empty), parse it into
+     * axios's own proxy option so the Telegram mirror still reaches the Bot API.
+     */
+    private axiosProxy;
     /** Fire a test push from the settings page. */
     sendTest(): Promise<{
         sent: number;

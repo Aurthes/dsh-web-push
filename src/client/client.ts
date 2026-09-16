@@ -77,6 +77,11 @@ const zh = {
   stillDelivering: 'ℹ️ 本浏览器(当前域名)未订阅,但服务器仍记录 {n} 台设备在收推送(经其他域名注册)——通知本身仍在送达。',
   perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点侧边栏底部的「恢复手机推送」按钮(或上面「开启本机推送」)重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,这一步无法全自动。',
   restorePill: '恢复手机推送',
+  tgTitle: 'Telegram 镜像(重启/换域名不受影响)',
+  tgEnabled: '启用 Telegram 镜像',
+  tgTokenPh: 'Bot Token(@BotFather 创建,形如 123456:ABC-DEF...)',
+  tgChatPh: 'Chat ID(私聊=你的用户 ID)',
+  tgHint: '同一条单行通知再镜像一份到 Telegram,正文零展开;凭 token+chat id 工作,与域名无关。',
 }
 
 const en: Record<string, string> = {
@@ -125,6 +130,11 @@ const en: Record<string, string> = {
   stillDelivering: 'ℹ️ This browser (current domain) is not subscribed, but the server still delivers to {n} device(s) registered via other domains — notifications are still arriving.',
   perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "Restore phone push" at the sidebar bottom (or "Enable this device" above) to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be fully automated.',
   restorePill: 'Restore phone push',
+  tgTitle: 'Telegram mirror (survives restarts & domain changes)',
+  tgEnabled: 'Enable Telegram mirror',
+  tgTokenPh: 'Bot Token (from @BotFather, e.g. 123456:ABC-DEF...)',
+  tgChatPh: 'Chat ID (private chat = your user ID)',
+  tgHint: 'Mirrors the same one-line notification to Telegram with zero expansion; works by token+chat id, independent of any domain.',
 }
 
 const DICTS: Record<string, Record<string, string>> = { zh, en }
@@ -357,6 +367,7 @@ function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
     ok: { color: '#4caf7d' },
     err: { color: '#e06c60' },
     label: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
+    input: { borderRadius: 8, border: '1px solid var(--dsh-border, #2a2f3a)', padding: '6px 10px', background: 'transparent', color: 'inherit', fontSize: 13, fontFamily: 'inherit' },
     device: { display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 0', borderBottom: '1px dashed var(--dsh-border, #2a2f3a55)' },
     h: { margin: 0, fontSize: 15, fontWeight: 700 },
   }
@@ -432,6 +443,29 @@ function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
           ),
         ),
       ),
+    ),
+
+    h('div', { style: styles.card },
+      h('div', { style: { fontWeight: 600 } }, t('tgTitle')),
+      h('label', { style: styles.label },
+        h('input', {
+          type: 'checkbox',
+          checked: config?.telegram?.enabled === true,
+          onChange: (e: any) => { void saveConfig({ ...config, telegram: { ...config?.telegram, enabled: e.target.checked } }) },
+        }),
+        t('tgEnabled'),
+      ),
+      h('input', {
+        type: 'text', placeholder: t('tgTokenPh'), defaultValue: config?.telegram?.botToken ?? '',
+        onBlur: (e: any) => { const v = e.target.value.trim(); if (v !== (config?.telegram?.botToken ?? '')) void saveConfig({ ...config, telegram: { ...config?.telegram, botToken: v } }) },
+        style: styles.input,
+      }),
+      h('input', {
+        type: 'text', placeholder: t('tgChatPh'), defaultValue: config?.telegram?.chatId ?? '',
+        onBlur: (e: any) => { const v = e.target.value.trim(); if (v !== (config?.telegram?.chatId ?? '')) void saveConfig({ ...config, telegram: { ...config?.telegram, chatId: v } }) },
+        style: styles.input,
+      }),
+      h('div', { style: styles.muted }, t('tgHint')),
     ),
 
     h('div', { style: styles.card },
