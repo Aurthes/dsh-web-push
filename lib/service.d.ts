@@ -33,8 +33,14 @@ export declare class WebPushService extends Service {
     getPublicKey(): string;
     /** Every stored subscription (without per-device secrets exposure beyond keys). */
     listSubscriptions(): Array<Omit<StoredSubscription, 'subscription'>>;
-    /** Add or refresh one subscription (keyed by endpoint). */
-    addSubscription(subscription: Record<string, unknown>, label: string): void;
+    /**
+     * Add or refresh one subscription (keyed by endpoint). A re-register from
+     * the SAME device label through a DIFFERENT origin (quick-tunnel restart)
+     * supersedes that device's older subscriptions: the old-origin worker
+     * still receives pushes but its clicks open the dead domain, and two
+     * same-tag notifications race for the screen. Keep only the newest.
+     */
+    addSubscription(subscription: Record<string, unknown>, label: string, origin?: string): void;
     /** Remove one subscription by endpoint (user action or stale cleanup). */
     removeSubscription(endpoint: string): boolean;
     /**

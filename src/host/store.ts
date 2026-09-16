@@ -18,6 +18,8 @@ export interface StoredSubscription {
   subscribedAt: number
   /** PushSubscription.toJSON() — { endpoint, keys: { p256dh, auth }, ... }. */
   subscription: Record<string, unknown>
+  /** Site origin the subscription was registered from (quick tunnels rotate it). */
+  origin?: string
   /** Epoch ms of the most recent delivery attempt (success or failure). */
   lastSendAt?: number
   /** Whether the most recent attempt reached the push service. */

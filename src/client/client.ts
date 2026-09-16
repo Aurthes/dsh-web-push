@@ -245,7 +245,10 @@ function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
       }))
       const json = subscription.toJSON() as Record<string, unknown>
       const label = (navigator.userAgent.match(/Android[^;)]*|iPhone[^;)]*|iPad[^;)]*|Macintosh|Windows/)?.[0] ?? 'device')
-      const saved = await withStep(t('stepSaving'), rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label }))
+      // Send the CURRENT page origin (captured live, never hardcoded): the
+      // host uses it to supersede this device's subscriptions from older
+      // quick-tunnel domains, whose notification clicks open dead URLs.
+      const saved = await withStep(t('stepSaving'), rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label, origin: location.origin }))
       if (!saved.ok) throw new Error(saved.error?.message ?? 'subscribe failed')
       localStorage.setItem(ENDPOINT_KEY, String(json.endpoint ?? ''))
       setOwnEndpoint(String(json.endpoint ?? ''))

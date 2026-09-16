@@ -26,7 +26,7 @@ export interface PushRpcBridge {
     read(): PluginConfig;
     write(partial: Partial<PluginConfig>): PluginConfig;
     publicKey(): string;
-    subscribe(subscription: Record<string, unknown>, label: string): void;
+    subscribe(subscription: Record<string, unknown>, label: string, origin?: string): void;
     unsubscribe(endpoint: string): boolean;
     list(): Array<Omit<StoredSubscription, 'subscription'>>;
     test(): Promise<{

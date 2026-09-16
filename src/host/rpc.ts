@@ -39,7 +39,7 @@ export interface PushRpcBridge {
   read(): PluginConfig
   write(partial: Partial<PluginConfig>): PluginConfig
   publicKey(): string
-  subscribe(subscription: Record<string, unknown>, label: string): void
+  subscribe(subscription: Record<string, unknown>, label: string, origin?: string): void
   unsubscribe(endpoint: string): boolean
   list(): Array<Omit<StoredSubscription, 'subscription'>>
   test(): Promise<{ sent: number; removed: number; errors: string[] }>
@@ -79,7 +79,8 @@ function pushRpcHandler(bridge: PushRpcBridge) {
         const subscription = payload?.subscription
         if (subscription === null || typeof subscription !== 'object') return fail('push.subscribe expects { subscription, label? }')
         try {
-          bridge.subscribe(subscription as Record<string, unknown>, String(payload?.label ?? 'device'))
+          const origin = typeof payload?.origin === 'string' ? payload.origin.slice(0, 200) : undefined
+          bridge.subscribe(subscription as Record<string, unknown>, String(payload?.label ?? 'device'), origin)
           return ok(bridge.list())
         } catch (error) {
           return fail(error instanceof Error ? error.message : 'subscribe failed')
