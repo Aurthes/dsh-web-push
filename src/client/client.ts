@@ -128,6 +128,7 @@ const en: Record<string, string> = {
 const DICTS: Record<string, Record<string, string>> = { zh, en }
 
 const ENDPOINT_KEY = 'dsh-web-push.endpoint'
+const REMOVED_KEY = 'dsh-web-push.removed'
 
 /** Convert a base64url VAPID public key into the Uint8Array subscribe() needs. */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -233,32 +234,43 @@ function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
       // activation — Android Chrome silently denies a stale-gesture prompt.
       const permission = await withStep(t('stepPermAsk'), Notification.requestPermission())
       if (permission !== 'granted') throw new Error(t('permDenied'))
-      // Scope MUST be '/' (allowed by the sw.js route's Service-Worker-Allowed
-      // header): `serviceWorker.ready` resolves only for a worker covering
-      // the PAGE's scope — a /dsh-web-push/-scoped worker never activates
-      // for a page at / and .ready waits forever by spec.
-      const registration = await withStep(t('stepSwRegister'), navigator.serviceWorker.register('/dsh-web-push/sw.js', { scope: '/' }))
-      await withStep(t('stepSwActive'), navigator.serviceWorker.ready)
-      const subscription = await withStep(t('stepSubscribing'), registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      }))
-      const json = subscription.toJSON() as Record<string, unknown>
-      const label = (navigator.userAgent.match(/Android[^;)]*|iPhone[^;)]*|iPad[^;)]*|Macintosh|Windows/)?.[0] ?? 'device')
-      // Send the CURRENT page origin (captured live, never hardcoded): the
-      // host uses it to supersede this device's subscriptions from older
-      // quick-tunnel domains, whose notification clicks open dead URLs.
-      const saved = await withStep(t('stepSaving'), rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label, origin: location.origin }))
-      if (!saved.ok) throw new Error(saved.error?.message ?? 'subscribe failed')
-      localStorage.setItem(ENDPOINT_KEY, String(json.endpoint ?? ''))
-      setOwnEndpoint(String(json.endpoint ?? ''))
-      await refreshDevices()
+      await registerSubscription()
       setNote({ kind: 'ok', text: t('subscribedHere') })
     } catch (error) {
       setNote({ kind: 'err', text: error instanceof Error ? error.message : String(error) })
     } finally {
       setBusy('')
     }
+  }
+
+  /**
+   * Register SW + subscribe + save to the host. Shared by the manual button
+   * and the silent self-heal path: after a quick-tunnel restart the domain is
+   * new, and merely OPENING the page must be enough to restore push — no
+   * button, no permission prompt (permission is already granted).
+   */
+  async function registerSubscription(): Promise<void> {
+    // Scope MUST be '/' (allowed by the sw.js route's Service-Worker-Allowed
+    // header): `serviceWorker.ready` resolves only for a worker covering
+    // the PAGE's scope — a /dsh-web-push/-scoped worker never activates
+    // for a page at / and .ready waits forever by spec.
+    const registration = await navigator.serviceWorker.register('/dsh-web-push/sw.js', { scope: '/' })
+    await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    })
+    const json = subscription.toJSON() as Record<string, unknown>
+    const label = (navigator.userAgent.match(/Android[^;)]*|iPhone[^;)]*|iPad[^;)]*|Macintosh|Windows/)?.[0] ?? 'device')
+    // Send the CURRENT page origin (captured live, never hardcoded): the
+    // host uses it to supersede this device's subscriptions from older
+    // quick-tunnel domains, whose notification clicks open dead URLs.
+    const saved = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label, origin: location.origin })
+    if (!saved.ok) throw new Error(saved.error?.message ?? 'subscribe failed')
+    localStorage.setItem(ENDPOINT_KEY, String(json.endpoint ?? ''))
+    localStorage.removeItem(REMOVED_KEY)
+    setOwnEndpoint(String(json.endpoint ?? ''))
+    await refreshDevices()
   }
 
   async function removeDevice(): Promise<void> {
@@ -268,6 +280,9 @@ function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
       await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.unsubscribe, { endpoint: ownEndpoint })
       try { const reg = await navigator.serviceWorker.getRegistration(); await reg?.pushManager.getSubscription()?.then((s) => s?.unsubscribe()) } catch { /* best effort */ }
       localStorage.removeItem(ENDPOINT_KEY)
+      // An explicit removal is the ONLY thing that opts this origin out of
+      // the silent self-heal below — otherwise re-subscribe after restarts.
+      localStorage.setItem(REMOVED_KEY, '1')
       setOwnEndpoint('')
       await refreshDevices()
     } finally {
@@ -530,4 +545,46 @@ export function apply(ctx: any): void {
     locale: NS,
     inject: () => ({ rpcCall }),
   }, WebPushSettings))
+
+  // ------------------------------------------------------------- self-heal
+  // Runs on EVERY page load (not just the settings page): after a quick-tunnel
+  // restart the origin is new, and merely OPENING DSH must restore push —
+  // no permission prompt (already granted), no button. The host supersedes
+  // this device's subscriptions from older dead domains, so this silently
+  // converges to exactly one working subscription per device.
+  void (async () => {
+    try {
+      const support = supportState()
+      if (!support.secure || !support.supported || support.permission !== 'granted') return
+      if (localStorage.getItem(REMOVED_KEY)) return // explicit removal opts this origin out
+      const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
+      if (own) {
+        const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
+        if (list.ok && Array.isArray(list.value) && list.value.some((d: any) => d.endpoint === own)) return // already subscribed on this origin
+      }
+      const [cfg, key] = await Promise.all([
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.configGet),
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.vapidKey),
+      ])
+      if (!cfg.ok || cfg.value?.enabled === false) return
+      if (!key.ok || !key.value?.publicKey) return
+      const registration = await navigator.serviceWorker.register('/dsh-web-push/sw.js', { scope: '/' })
+      await navigator.serviceWorker.ready
+      // Reuse a live subscription on this origin if the browser kept one;
+      // subscribe() throws when one already exists.
+      const existing = await registration.pushManager.getSubscription()
+      const subscription = existing ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key.value.publicKey),
+      })
+      const json = subscription.toJSON() as Record<string, unknown>
+      const label = (navigator.userAgent.match(/Android[^;)]*|iPhone[^;)]*|iPad[^;)]*|Macintosh|Windows/)?.[0] ?? 'device')
+      const saved = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label, origin: location.origin })
+      if (!saved.ok) return
+      localStorage.setItem(ENDPOINT_KEY, String(json.endpoint ?? ''))
+      localStorage.removeItem(REMOVED_KEY)
+    } catch {
+      // Silent best effort — the settings page surfaces real errors when used.
+    }
+  })()
 }
