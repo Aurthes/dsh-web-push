@@ -1,0 +1,47 @@
+{
+  "name": "dsh-web-push",
+  "version": "1.0.0",
+  "description": "DSH Web Push plugin: native OS push notifications on your phone via the Push API (Android Chrome, iOS 16.4+ home-screen web apps). No third-party app required.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "npm run build:host && npm run build:client",
+    "build:host": "tsc",
+    "build:client": "node scripts/build-client.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/web-push": "^3.6.4",
+    "@deepseek-ai/cordis": "^4.0.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT"
+}

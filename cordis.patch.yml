@@ -1,0 +1,22 @@
+# dsh-web-push bundle patch layer.
+#
+# Declared by the `dsh.bundle.patch` key in package.json; loaded as a profile
+# patch layer by `dsh plugin`. The `name` references the installed package so
+# Node module resolution locates the built entry (`lib/index.js`). DSH Web runs
+# the host plane, so this row loads on the host: it listens to `session/event`,
+# registers the /dsh-web-push RPC channel, and serves the service worker over
+# the webServer route table.
+- insert:
+    - id: web-push
+      name: dsh-web-push
+      config:
+        enabled: true
+        events:
+          conversationCompleted: true
+          conversationPaused: true
+          conversationFailed: true
+          authorizationRequired: true
+          confirmationRequired: true
+          todoProgress: true
+        mainAgentOnly: true
+        titlePrefix: ''
