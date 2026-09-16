@@ -627,6 +627,44 @@ export function apply(ctx: any): void {
     document.body.appendChild(pill)
   }
 
+  /**
+   * Zero-effort prompt arming for fresh domains: the first click or keypress
+   * ANYWHERE (sending a message, opening a menu — actions the user performs
+   * anyway) supplies the user gesture Chrome requires, so the permission
+   * sheet rides along instead of demanding a dedicated pill tap. The one
+   * unavoidable tap is "Allow" itself: Chrome mandates explicit per-site
+   * consent for OS-level notifications on every new origin.
+   */
+  const armAutoPrompt = (): void => {
+    const pillId = 'dsh-web-push-restore'
+    const trigger = (ev: Event): void => {
+      // Clicks on the pill itself belong to the pill handler (its ✕ must be
+      // able to opt out without popping a prompt).
+      if (ev.target instanceof Element && ev.target.closest(`#${pillId}`)) return
+      disarm()
+      void Notification.requestPermission()
+        .then((permission) => {
+          if (permission !== 'granted') return
+          void ensureSubscription().then(() => { document.getElementById(pillId)?.remove() })
+        })
+        .catch(() => {})
+    }
+    const disarm = (): void => {
+      document.removeEventListener('click', trigger, true)
+      document.removeEventListener('keydown', trigger, true)
+    }
+    document.addEventListener('click', trigger, { capture: true })
+    document.addEventListener('keydown', trigger, { capture: true })
+    // Stand down once the question is settled elsewhere (pill tap, opt-out,
+    // or the user resetting permission in site settings).
+    const settle = window.setInterval(() => {
+      if (Notification.permission !== 'default' || localStorage.getItem(REMOVED_KEY)) {
+        clearInterval(settle)
+        disarm()
+      }
+    }, 1000)
+  }
+
   void (async () => {
     try {
       const support = supportState()
@@ -658,6 +696,7 @@ export function apply(ctx: any): void {
       if (!cfg.ok || cfg.value?.enabled === false) return
       if (!Array.isArray(list.value) || list.value.length === 0) return
       showRestorePill()
+      armAutoPrompt()
     } catch {
       // Silent best effort — the settings page surfaces real errors when used.
     }
