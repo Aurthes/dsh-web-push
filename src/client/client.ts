@@ -75,7 +75,8 @@ const zh = {
   subscribedHere: '✅ 本机已订阅',
   notSubscribedHere: '本机未订阅',
   stillDelivering: 'ℹ️ 本浏览器(当前域名)未订阅,但服务器仍记录 {n} 台设备在收推送(经其他域名注册)——通知本身仍在送达。',
-  perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点上面「开启本机推送」重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,无法自动完成。',
+  perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点页面底部的「🔔 恢复手机推送」(或上面「开启本机推送」)重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,这一步无法全自动。',
+  restorePill: '🔔 恢复手机推送',
 }
 
 const en: Record<string, string> = {
@@ -122,7 +123,8 @@ const en: Record<string, string> = {
   subscribedHere: '✅ Subscribed on this device',
   notSubscribedHere: 'Not subscribed on this device',
   stillDelivering: 'ℹ️ This browser (current domain) is not subscribed, but the server still delivers to {n} device(s) registered via other domains — notifications are still arriving.',
-  perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "Enable this device" once to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be automated.',
+  perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "🔔 Restore phone push" at the bottom of the page (or "Enable this device" above) to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be fully automated.',
+  restorePill: '🔔 Restore phone push',
 }
 
 const DICTS: Record<string, Record<string, string>> = { zh, en }
@@ -547,27 +549,23 @@ export function apply(ctx: any): void {
   }, WebPushSettings))
 
   // ------------------------------------------------------------- self-heal
-  // Runs on EVERY page load (not just the settings page): after a quick-tunnel
-  // restart the origin is new, and merely OPENING DSH must restore push —
-  // no permission prompt (already granted), no button. The host supersedes
-  // this device's subscriptions from older dead domains, so this silently
-  // converges to exactly one working subscription per device.
-  void (async () => {
+  // Runs on EVERY page load (not just the settings page), in two tiers:
+  //   permission granted → silently re-subscribe (no prompt, no button);
+  //   permission default  → show a one-tap restore pill at the page bottom.
+  // Chrome scopes notification permission per domain and the prompt needs a
+  // user gesture (a gesture-less requestPermission is auto-denied on Android
+  // Chrome and can latch), so for every fresh quick-tunnel domain the pill
+  // tap + Allow is the least manual flow that works. The host supersedes this
+  // device's subscriptions from older dead domains, so after the tap
+  // everything converges to exactly one working subscription per device.
+  const ensureSubscription = async (): Promise<boolean> => {
     try {
-      const support = supportState()
-      if (!support.secure || !support.supported || support.permission !== 'granted') return
-      if (localStorage.getItem(REMOVED_KEY)) return // explicit removal opts this origin out
-      const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
-      if (own) {
-        const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
-        if (list.ok && Array.isArray(list.value) && list.value.some((d: any) => d.endpoint === own)) return // already subscribed on this origin
-      }
       const [cfg, key] = await Promise.all([
         rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.configGet),
         rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.vapidKey),
       ])
-      if (!cfg.ok || cfg.value?.enabled === false) return
-      if (!key.ok || !key.value?.publicKey) return
+      if (!cfg.ok || cfg.value?.enabled === false) return false
+      if (!key.ok || !key.value?.publicKey) return false
       const registration = await navigator.serviceWorker.register('/dsh-web-push/sw.js', { scope: '/' })
       await navigator.serviceWorker.ready
       // Reuse a live subscription on this origin if the browser kept one;
@@ -580,9 +578,80 @@ export function apply(ctx: any): void {
       const json = subscription.toJSON() as Record<string, unknown>
       const label = (navigator.userAgent.match(/Android[^;)]*|iPhone[^;)]*|iPad[^;)]*|Macintosh|Windows/)?.[0] ?? 'device')
       const saved = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.subscribe, { subscription: json, label, origin: location.origin })
-      if (!saved.ok) return
+      if (!saved.ok) return false
       localStorage.setItem(ENDPOINT_KEY, String(json.endpoint ?? ''))
       localStorage.removeItem(REMOVED_KEY)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const showRestorePill = (): void => {
+    if (document.getElementById('dsh-web-push-restore')) return
+    const pill = document.createElement('div')
+    pill.id = 'dsh-web-push-restore'
+    pill.style.cssText = [
+      'position:fixed', 'z-index:2147483000',
+      `bottom:${window.innerWidth < 700 ? '96px' : '24px'}`,
+      'left:50%', 'transform:translateX(-50%)',
+      'display:flex', 'align-items:center', 'gap:12px',
+      'background:#4d6bfe', 'color:#fff', 'border-radius:999px',
+      'padding:10px 18px', 'font-size:14px', 'font-weight:600',
+      'font-family:inherit', 'cursor:pointer',
+      'box-shadow:0 4px 16px rgba(0,0,0,.35)',
+    ].join(';')
+    const text = document.createElement('span')
+    text.textContent = t('restorePill')
+    const close = document.createElement('span')
+    close.textContent = '✕'
+    close.style.cssText = 'opacity:.7;font-weight:400'
+    pill.append(text, close)
+    pill.onclick = async (ev) => {
+      if (ev.target === close) {
+        // Explicit dismissal opts this origin out of both the pill and the
+        // silent heal until the user re-enables from the settings page.
+        localStorage.setItem(REMOVED_KEY, '1')
+        pill.remove()
+        return
+      }
+      pill.style.opacity = '0.6'
+      // This tap is the user gesture the permission prompt requires.
+      const permission = await Notification.requestPermission()
+      if (permission === 'granted' && await ensureSubscription()) {
+        pill.remove()
+        return
+      }
+      pill.style.opacity = '1' // denied or failed — keep it visible this visit
+    }
+    document.body.appendChild(pill)
+  }
+
+  void (async () => {
+    try {
+      const support = supportState()
+      if (!support.secure || !support.supported) return
+      if (localStorage.getItem(REMOVED_KEY)) return // explicit opt-out
+      const permission = Notification.permission
+      if (permission === 'denied') return // needs a manual site-settings reset
+      if (permission === 'granted') {
+        const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
+        if (own) {
+          const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
+          if (list.ok && Array.isArray(list.value) && list.value.some((d: any) => d.endpoint === own)) return // already subscribed on this origin
+        }
+        await ensureSubscription()
+        return
+      }
+      // Fresh domain (permission 'default'): only worth nudging when this DSH
+      // actually has push consumers registered — otherwise stay invisible.
+      const [cfg, list] = await Promise.all([
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.configGet),
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list),
+      ])
+      if (!cfg.ok || cfg.value?.enabled === false) return
+      if (!Array.isArray(list.value) || list.value.length === 0) return
+      showRestorePill()
     } catch {
       // Silent best effort — the settings page surfaces real errors when used.
     }
