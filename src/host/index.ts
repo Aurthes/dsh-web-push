@@ -49,7 +49,11 @@ export default function webPushPlugin(ctx: Context, config?: Parameters<WebPushS
     read: () => service.getConfig(),
     write: (partial: any) => service.updateConfig(partial),
     publicKey: () => service.getPublicKey(),
-    subscribe: (subscription: Record<string, unknown>, label: string) => service.addSubscription(subscription, label),
+    // NOTE: forward ALL THREE args. An earlier version dropped `origin` here,
+    // which silently disabled the label+origin dedupe: every subscribe stored
+    // origin-less rows, stale dead-domain subscriptions were never superseded,
+    // and notification clicks kept racing to 1016 pages.
+    subscribe: (subscription: Record<string, unknown>, label: string, origin?: string) => service.addSubscription(subscription, label, origin),
     unsubscribe: (endpoint: string) => service.removeSubscription(endpoint),
     list: () => service.listSubscriptions(),
     test: () => service.sendTest(),
