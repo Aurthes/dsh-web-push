@@ -74,8 +74,8 @@ const zh = {
   hint: '提示:首次开启时浏览器会弹通知授权,请选「允许」。Android 无需安装;若想图标化,可再「添加到主屏幕」。设备由服务端记忆,换域名不会丢;但订阅按域名算,换了访问域名后按钮显示「未开启」属正常,推送不受影响。',
   subscribedHere: '✅ 本机已订阅',
   notSubscribedHere: '本机未订阅',
-  stillDelivering: 'ℹ️ 本浏览器(当前域名)未订阅,但服务器仍记录 {n} 台设备在正常收推送(经其他域名注册)——推送并未中断,不重新开启也照样收。',
-  perDomainNote: '上面的按钮只管本浏览器:订阅按域名算,换域名后显示「未开启」属正常。建议在常用域名重新开启一次,这样点通知才能打开有效链接。',
+  stillDelivering: 'ℹ️ 本浏览器(当前域名)未订阅,但服务器仍记录 {n} 台设备在收推送(经其他域名注册)——通知本身仍在送达。',
+  perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点上面「开启本机推送」重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,无法自动完成。',
 }
 
 const en: Record<string, string> = {
@@ -121,8 +121,8 @@ const en: Record<string, string> = {
   hint: 'Tip: the browser asks for notification permission on first enable — choose Allow. Android needs no install; "Add to Home Screen" is optional. Devices are remembered server-side and survive domain changes; subscriptions are per-domain, so the button reading "off" after a domain change is cosmetic — pushes keep flowing.',
   subscribedHere: '✅ Subscribed on this device',
   notSubscribedHere: 'Not subscribed on this device',
-  stillDelivering: 'ℹ️ This browser (current domain) is not subscribed, but the server still delivers to {n} device(s) registered via other domains — pushes have NOT stopped.',
-  perDomainNote: 'The button above only covers this browser: subscriptions are per-domain and read "off" after a domain change. Re-enable on your usual domain so notification clicks open a live URL.',
+  stillDelivering: 'ℹ️ This browser (current domain) is not subscribed, but the server still delivers to {n} device(s) registered via other domains — notifications are still arriving.',
+  perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "Enable this device" once to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be automated.',
 }
 
 const DICTS: Record<string, Record<string, string>> = { zh, en }
