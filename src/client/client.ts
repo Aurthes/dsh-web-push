@@ -635,10 +635,16 @@ export function apply(ctx: any): void {
       const permission = Notification.permission
       if (permission === 'denied') return // needs a manual site-settings reset
       if (permission === 'granted') {
+        // Re-register whenever the stored row for this endpoint doesn't carry
+        // THIS origin yet: a subscribe written by a pre-origin client build
+        // (or from another domain) leaves stale same-label rows behind, and
+        // only a fresh subscribe (which the host dedupes by label+origin)
+        // collapses them. Cheap no-op otherwise.
         const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
         if (own) {
           const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
-          if (list.ok && Array.isArray(list.value) && list.value.some((d: any) => d.endpoint === own)) return // already subscribed on this origin
+          const row = list.ok && Array.isArray(list.value) ? list.value.find((d: any) => d.endpoint === own) : undefined
+          if (row && row.origin === location.origin) return // fully healthy here
         }
         await ensureSubscription()
         return

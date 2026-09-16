@@ -86,7 +86,7 @@ export class WebPushService extends Service {
 
   /** Every stored subscription (without per-device secrets exposure beyond keys). */
   listSubscriptions(): Array<Omit<StoredSubscription, 'subscription'>> {
-    return this.subscriptions.map(({ endpoint, label, subscribedAt }) => ({ endpoint, label, subscribedAt }))
+    return this.subscriptions.map(({ endpoint, label, subscribedAt, origin }) => ({ endpoint, label, subscribedAt, origin }))
   }
 
   /**
