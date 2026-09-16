@@ -75,8 +75,8 @@ const zh = {
   subscribedHere: '✅ 本机已订阅',
   notSubscribedHere: '本机未订阅',
   stillDelivering: 'ℹ️ 本浏览器(当前域名)未订阅,但服务器仍记录 {n} 台设备在收推送(经其他域名注册)——通知本身仍在送达。',
-  perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点页面底部的「🔔 恢复手机推送」(或上面「开启本机推送」)重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,这一步无法全自动。',
-  restorePill: '🔔 恢复手机推送',
+  perDomainNote: '但旧域名通知的点击跳转已失效(域名已死)。点侧边栏底部的「恢复手机推送」按钮(或上面「开启本机推送」)重新授权一次即可恢复——Chrome 按域名记通知权限,新域名必须重新点「允许」,这一步无法全自动。',
+  restorePill: '恢复手机推送',
 }
 
 const en: Record<string, string> = {
@@ -123,8 +123,8 @@ const en: Record<string, string> = {
   subscribedHere: '✅ Subscribed on this device',
   notSubscribedHere: 'Not subscribed on this device',
   stillDelivering: 'ℹ️ This browser (current domain) is not subscribed, but the server still delivers to {n} device(s) registered via other domains — notifications are still arriving.',
-  perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "🔔 Restore phone push" at the bottom of the page (or "Enable this device" above) to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be fully automated.',
-  restorePill: '🔔 Restore phone push',
+  perDomainNote: 'However, clicks on those older notifications no longer jump anywhere (their domain is dead). Tap "Restore phone push" at the sidebar bottom (or "Enable this device" above) to re-authorize — Chrome scopes notification permission per domain and the prompt needs a manual tap; it cannot be fully automated.',
+  restorePill: 'Restore phone push',
 }
 
 const DICTS: Record<string, Record<string, string>> = { zh, en }
@@ -166,6 +166,37 @@ function agoText(ts: number): string {
 interface WebPushSettingsProps {
   rpcCall: RpcCall
   t: (key: string) => string
+}
+
+/**
+ * Sidebar footer entry (beside Settings): the one deliberate button for
+ * re-authorizing notifications on a fresh quick-tunnel domain. Hidden unless
+ * this origin actually needs it; icon-only when the sidebar is collapsed.
+ */
+function WebPushRestoreAction({ checkNeeded, restore, t, wide }: any) {
+  const [needed, setNeeded] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void checkNeeded().then((v: boolean) => setNeeded(v)) }, [checkNeeded])
+  if (!needed) return null
+  return h('button', {
+    type: 'button',
+    'aria-label': t('restorePill'),
+    title: t('restorePill'),
+    disabled: busy,
+    onClick: () => {
+      setBusy(true)
+      void restore().then((ok: boolean) => { if (ok) setNeeded(false); else setBusy(false) })
+    },
+    style: {
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: 'transparent', color: 'inherit',
+      border: 'none', borderRadius: 8, padding: '6px 10px',
+      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    },
+  },
+    h('span', { 'aria-hidden': true }, busy ? '⏳' : '🔔'),
+    wide !== false && h('span', null, t('restorePill')),
+  )
 }
 
 function WebPushSettings({ rpcCall, t }: WebPushSettingsProps) {
@@ -587,79 +618,65 @@ export function apply(ctx: any): void {
     }
   }
 
-  const showRestorePill = (): void => {
-    if (document.getElementById('dsh-web-push-restore')) return
-    const pill = document.createElement('div')
-    pill.id = 'dsh-web-push-restore'
-    pill.style.cssText = [
-      'position:fixed', 'z-index:2147483000',
-      `bottom:${window.innerWidth < 700 ? '96px' : '24px'}`,
-      'left:50%', 'transform:translateX(-50%)',
-      'display:flex', 'align-items:center', 'gap:12px',
-      'background:#4d6bfe', 'color:#fff', 'border-radius:999px',
-      'padding:10px 18px', 'font-size:14px', 'font-weight:600',
-      'font-family:inherit', 'cursor:pointer',
-      'box-shadow:0 4px 16px rgba(0,0,0,.35)',
-    ].join(';')
-    const text = document.createElement('span')
-    text.textContent = t('restorePill')
-    const close = document.createElement('span')
-    close.textContent = '✕'
-    close.style.cssText = 'opacity:.7;font-weight:400'
-    pill.append(text, close)
-    pill.onclick = async (ev) => {
-      if (ev.target === close) {
-        // Explicit dismissal opts this origin out of both the pill and the
-        // silent heal until the user re-enables from the settings page.
-        localStorage.setItem(REMOVED_KEY, '1')
-        pill.remove()
-        return
-      }
-      pill.style.opacity = '0.6'
-      // This tap is the user gesture the permission prompt requires.
-      const permission = await Notification.requestPermission()
-      if (permission === 'granted' && await ensureSubscription()) {
-        pill.remove()
-        return
-      }
-      pill.style.opacity = '1' // denied or failed — keep it visible this visit
+  /** True when this origin needs the one-tap re-authorize (fresh tunnel domain). */
+  const restoreNeeded = async (): Promise<boolean> => {
+    try {
+      const support = supportState()
+      if (!support.secure || !support.supported) return false
+      if (Notification.permission !== 'default') return false
+      if (localStorage.getItem(REMOVED_KEY)) return false // explicit opt-out
+      const [cfg, list] = await Promise.all([
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.configGet),
+        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list),
+      ])
+      if (!cfg.ok || cfg.value?.enabled === false) return false
+      return Array.isArray(list.value) && list.value.length > 0
+    } catch {
+      return false
     }
-    document.body.appendChild(pill)
   }
 
+  // Silent heal for origins whose permission is already granted; the sidebar
+  // button below covers the fresh-domain ('default') case.
   void (async () => {
     try {
       const support = supportState()
       if (!support.secure || !support.supported) return
       if (localStorage.getItem(REMOVED_KEY)) return // explicit opt-out
-      const permission = Notification.permission
-      if (permission === 'denied') return // needs a manual site-settings reset
-      if (permission === 'granted') {
-        // Re-register whenever the stored row for this endpoint doesn't carry
-        // THIS origin yet: a subscribe written by a pre-origin client build
-        // (or from another domain) leaves stale same-label rows behind, and
-        // only a fresh subscribe (which the host dedupes by label+origin)
-        // collapses them. Cheap no-op otherwise.
-        const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
-        if (own) {
-          const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
-          const row = list.ok && Array.isArray(list.value) ? list.value.find((d: any) => d.endpoint === own) : undefined
-          if (row && row.origin === location.origin) return // fully healthy here
-        }
-        await ensureSubscription()
-        return
+      if (Notification.permission !== 'granted') return
+      // Re-register whenever the stored row for this endpoint doesn't carry
+      // THIS origin yet: a subscribe written by a pre-origin client build
+      // (or from another domain) leaves stale same-label rows behind, and
+      // only a fresh subscribe (which the host dedupes by label+origin)
+      // collapses them. Cheap no-op otherwise.
+      const own = localStorage.getItem(ENDPOINT_KEY) ?? ''
+      if (own) {
+        const list = await rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list)
+        const row = list.ok && Array.isArray(list.value) ? list.value.find((d: any) => d.endpoint === own) : undefined
+        if (row && row.origin === location.origin) return // fully healthy here
       }
-      // Fresh domain (permission 'default'): only worth nudging when this DSH
-      // actually has push consumers registered — otherwise stay invisible.
-      const [cfg, list] = await Promise.all([
-        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.configGet),
-        rpcCall(PUSH_RPC_CHANNEL, ENDPOINTS.list),
-      ])
-      if (!cfg.ok || cfg.value?.enabled === false) return
-      if (!Array.isArray(list.value) || list.value.length === 0) return
-      showRestorePill()
+      await ensureSubscription()
     } catch {
       // Silent best effort — the settings page surfaces real errors when used.
     }
   })()
+
+  // Sidebar footer entry (beside Settings, same slot dsh-pocket uses): the
+  // one deliberate button that supplies the user gesture Chrome requires for
+  // the per-domain notification permission on a fresh tunnel domain. Renders
+  // nothing unless a restore is actually needed on this origin.
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'web-push-restore',
+    order: 20,
+    locale: NS,
+    inject: () => ({
+      checkNeeded: restoreNeeded,
+      restore: async (): Promise<boolean> => {
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') return false
+        return ensureSubscription()
+      },
+    }),
+  }, WebPushRestoreAction))
 }
